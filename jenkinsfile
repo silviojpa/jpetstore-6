@@ -1,0 +1,80 @@
+pipeline {
+    agent any 
+    
+    tools{
+        jdk 'jdk11'
+        maven 'maven'
+    }
+    
+    environment {
+        SCANNER_HOME=tool 'sonar-scanner'
+    }
+    
+    stages{
+        
+        stage("Git Checkout"){
+            steps{
+                git branch: 'main', changelog: false, poll: false, url: 'https://github.com/silviojpa/jpetstore-6.git'
+            }
+        }
+        
+        stage("Compile"){
+            steps{
+                sh "mvn clean compile"
+            }
+        }
+        
+        
+        stage('Sonar Analysis') {
+            steps {
+                   sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.url=http://localhost:9000/ -Dsonar.login=squ_52b9d8f85e2217031e3b1d63c5176f03ffc42324 -Dsonar.projectName=petstore \
+                   -Dsonar.java.binaries=. \
+                   -Dsonar.projectKey=petstore '''
+            }
+        }
+        
+        stage("OWASP Dependency Check"){
+            steps{
+                dependencyCheck additionalArguments: '--scan ./', odcInstallation: 'DP'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        
+        stage("Build"){
+            steps{
+                sh "mvn clean install -DskipTests=true"
+            }
+        }
+        
+        stage('Docker Build') {
+            steps {
+               script{
+                   withDockerRegistry(credentialsId: '0473272c-91b7-4277-8cae-6cc99ab7e3ab', toolName: 'docker') {
+                    sh "docker build -t petstore ."
+                    sh "docker tag petstore silvio69luiz/petstore:latest "
+                 }
+               }
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+               script{
+                   withDockerRegistry(credentialsId: '0473272c-91b7-4277-8cae-6cc99ab7e3ab', toolName: 'docker') {
+                    sh "docker push  silvio69luiz/petstore:latest "
+                 }
+               }
+            }
+        }
+
+		stage('Deploy to Docker') {
+            steps {
+               script{
+                   withDockerRegistry(credentialsId: '0473272c-91b7-4277-8cae-6cc99ab7e3ab', toolName: 'docker') {
+                    sh "docker run -d --name petstore-prod -p 8080:8080 silvio69luiz/petstore:latest "
+                 }
+               }
+            }
+        }
+    }
+}
